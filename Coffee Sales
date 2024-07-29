@@ -1,0 +1,155 @@
+!pip install pandas plotly dash prophet mlxtend
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from dash import Dash, dcc, html
+from dash.dependencies import Input, Output
+from prophet import Prophet
+from mlxtend.frequent_patterns import apriori, association_rules
+
+data = pd.read_csv('index.csv')
+data['datetime'] = pd.to_datetime(data['datetime'])
+data['hour'] = data['datetime'].dt.hour
+data['day'] = data['datetime'].dt.day
+data['day_of_week'] = data['datetime'].dt.dayofweek
+data['month'] = data['datetime'].dt.month
+data['date'] = data['datetime'].dt.date
+print(data.head())
+
+app = Dash(__name__)
+app.layout = html.Div([
+    html.H1("Análise Exploratória de Dados"),
+    html.Div([
+        html.Label('Selecione o Tipo de Café:'),
+        dcc.Dropdown(
+            id='coffee_dropdown',
+            options=[{'label': coffee, 'value': coffee} for coffee in data['coffee_name'].unique()],
+            value=data['coffee_name'].unique()[0],
+            clearable=False
+        )
+    ], style={'width': '50%', 'display': 'inline-block'}),
+    dcc.Graph(id='coffee_bar_chart'),
+    dcc.Graph(id='transactions_line_chart'),
+    dcc.Graph(id='money_box_plot'),
+    dcc.Graph(id='coffee_pie_chart'),
+    dcc.Graph(id='scatter_plot'),
+    dcc.Graph(id='histogram'),
+    dcc.Graph(id='stacked_bar_chart'),
+])
+
+@app.callback(
+    Output('coffee_bar_chart', 'figure'),
+    Output('transactions_line_chart', 'figure'),
+    Output('money_box_plot', 'figure'),
+    Output('coffee_pie_chart', 'figure'),
+    Output('scatter_plot', 'figure'),
+    Output('histogram', 'figure'),
+    Output('stacked_bar_chart', 'figure'),
+    Input('coffee_dropdown', 'value')
+)
+def update_graphs(selected_coffee):
+    filtered_data = data[data['coffee_name'] == selected_coffee]
+
+    coffee_frequency = data['coffee_name'].value_counts()
+    bar_chart = px.bar(
+        coffee_frequency,
+        x=coffee_frequency.index,
+        y=coffee_frequency.values,
+        labels={'x': 'Tipo de Café', 'y': 'Frequência'},
+        title='Frequência de Cada Tipo de Café Vendido'
+    )
+    
+    transactions_per_date = data['date'].value_counts().sort_index()
+    line_chart = px.line(
+        x=transactions_per_date.index,
+        y=transactions_per_date.values,
+        labels={'x': 'Data', 'y': 'Número de Transações'},
+        title='Número de Transações por Data'
+    )
+    
+    box_plot = px.box(
+        filtered_data,
+        y='money',
+        labels={'money': 'Valor (R$)'},
+        title=f'Distribuição dos Valores das Transações ({selected_coffee})'
+    )
+    
+    pie_chart = px.pie(
+        data,
+        names='coffee_name',
+        values='money',
+        title='Proporção de Vendas de Cada Tipo de Café'
+    )
+
+    scatter_plot = px.scatter(
+        data,
+        x='datetime',
+        y='money',
+        color='coffee_name',
+        labels={'datetime': 'Data e Hora', 'money': 'Valor (R$)'},
+        title='Relação entre Tempo e Valor da Transação'
+    )
+    
+    histogram = px.histogram(
+        data,
+        x='money',
+        nbins=20,
+        labels={'money': 'Valor (R$)'},
+        title='Distribuição dos Valores das Transações'
+    )
+
+    stacked_bar_chart = px.bar(
+        data,
+        x='date',
+        y='money',
+        color='coffee_name',
+        labels={'date': 'Data', 'money': 'Valor (R$)'},
+        title='Quantidade de Vendas por Dia por Tipo de Café'
+    )
+
+    return bar_chart, line_chart, box_plot, pie_chart, scatter_plot, histogram, stacked_bar_chart
+
+if __name__ == '__main__':
+    app.run_server(debug=False, use_reloader=False)
+
+hourly_sales = data.groupby('hour')['money'].sum().reset_index()
+hourly_sales_chart = px.line(hourly_sales, x='hour', y='money', labels={'hour': 'Hora do Dia', 'money': 'Valor (R$)'}, title='Vendas por Hora do Dia')
+hourly_sales_chart.show()
+
+weekly_sales = data.groupby('day_of_week')['money'].sum().reset_index()
+weekly_sales_chart = px.line(weekly_sales, x='day_of_week', y='money', labels={'day_of_week': 'Dia da Semana', 'money': 'Valor (R$)'}, title='Vendas por Dia da Semana')
+weekly_sales_chart.update_xaxes(tickvals=[0, 1, 2, 3, 4, 5, 6], ticktext=['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'])
+weekly_sales_chart.show()
+
+daily_sales = data.groupby('day')['money'].sum().reset_index()
+daily_sales_chart = px.line(daily_sales, x='day', y='money', labels={'day': 'Dia do Mês', 'money': 'Valor (R$)'}, title='Vendas por Dia do Mês')
+daily_sales_chart.show()
+
+monthly_sales = data.groupby('month')['money'].sum().reset_index()
+monthly_sales_chart = px.line(monthly_sales, x='month', y='money', labels={'month': 'Mês', 'money': 'Valor (R$)'}, title='Vendas por Mês')
+monthly_sales_chart.update_xaxes(tickvals=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], ticktext=['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'])
+monthly_sales_chart.show()
+
+time_series_sales = data.groupby('date')['money'].sum().reset_index()
+time_series_chart = px.line(time_series_sales, x='date', y='money', labels={'date': 'Data', 'money': 'Valor (R$)'}, title='Vendas Totais ao Longo do Tempo')
+time_series_chart.show()
+
+sales_data = data.groupby('date')['money'].sum().reset_index()
+sales_data.columns = ['ds', 'y']
+model = Prophet()
+model.fit(sales_data)
+future = model.make_future_dataframe(periods=90)
+forecast = model.predict(future)
+fig = model.plot(forecast)
+fig.show()
+
+fig2 = model.plot_components(forecast)
+fig2.show()
+
+basket = data.pivot_table(index='datetime', columns='coffee_name', values='money', aggfunc='sum').fillna(0)
+basket = basket.applymap(lambda x: 1 if x > 0 else 0)
+frequent_itemsets = apriori(basket, min_support=0.01, use_colnames=True)
+print(frequent_itemsets.head().round(2))
+rules = association_rules(frequent_itemsets, metric='lift', min_threshold=1)
+print(rules.head())
